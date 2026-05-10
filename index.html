@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML → Webflow</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --panel: #111;
+      --border: #252525;
+      --text: #e0e0e0;
+      --muted: #999;
+      --accent: #00c27c;
+      --error: #ff5252;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 15px;
+      min-height: 100vh;
+      padding: 28px 20px 48px;
+    }
+
+    .container { max-width: 980px; margin: 0 auto; }
+
+    /* Header */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .header-title { font-size: 16px; font-weight: 600; letter-spacing: 0.04em; color: #ddd; }
+    .header-title strong { color: var(--accent); }
+    .badge {
+      font-size: 11px; color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 3px 10px; border-radius: 100px; letter-spacing: 0.08em;
+    }
+
+    /* Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    /* ── Tab bar ── */
+    .tab-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .tab {
+      padding: 5px 16px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .tab:hover { color: var(--text); border-color: #444; }
+    .tab.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+
+    /* ── Tab panes ── */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .input-wrap { position: relative; }
+
+    .clear-btn {
+      position: absolute; top: 8px; right: 8px; z-index: 1;
+      background: transparent; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--muted); font-family: var(--mono); font-size: 11px;
+      padding: 2px 8px; cursor: pointer; letter-spacing: 0.04em;
+      transition: color 0.12s, border-color 0.12s;
+    }
+    .clear-btn:hover { color: var(--error); border-color: var(--error); }
+
+    textarea {
+      width: 100%; height: 440px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-family: var(--mono); font-size: 13px;
+      line-height: 1.65; padding: 14px 16px; resize: vertical; outline: none;
+      caret-color: var(--accent); transition: border-color 0.15s, background 0.15s;
+      display: block;
+    }
+    textarea:focus { border-color: #3a3a3a; }
+    textarea::placeholder { color: #3d3d3d; }
+    textarea.drag-over { border-color: var(--accent); background: #091a10; }
+
+    .drop-hint {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 6px;
+      background: rgba(0, 194, 124, 0.07);
+      border: 2px dashed var(--accent);
+      pointer-events: none;
+      opacity: 0; transition: opacity 0.15s;
+      font-size: 13px; color: var(--accent); letter-spacing: 0.04em;
+    }
+    textarea.drag-over + .drop-hint { opacity: 1; }
+
+    /* ── Right column ── */
+    .preview-col { display: flex; flex-direction: column; }
+
+    .col-label {
+      font-size: 11px; letter-spacing: 0.14em;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
+    }
+
+    .stats-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .stat {
+      font-size: 12px; color: var(--muted);
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 100px; padding: 3px 11px;
+    }
+    .stat b { color: var(--accent); }
+
+    .tree {
+      flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+      padding: 14px 16px; overflow-y: auto; height: 340px;
+      font-size: 13px; line-height: 1.75;
+    }
+    .tree-line  { display: block; white-space: pre; font-family: var(--mono); }
+    .tree-empty { color: #666; font-style: italic; }
+    .c-type { color: var(--accent); }
+    .c-cls  { color: #7ecfff; }
+    .c-val  { color: #777; }
+
+    /* ── Button ── */
+    .btn {
+      width: 100%; padding: 15px;
+      background: var(--accent); color: #000; border: none; border-radius: 6px;
+      font-family: var(--mono); font-size: 15px; font-weight: 700;
+      letter-spacing: 0.02em; cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:hover  { background: #00d98a; }
+    .btn:active { transform: scale(0.995); }
+
+    .status {
+      text-align: center; font-size: 13px; min-height: 20px;
+      margin-top: 8px; margin-bottom: 4px;
+      color: transparent; transition: color 0.2s;
+    }
+    .status.ok  { color: var(--accent); }
+    .status.err { color: var(--error); }
+
+    .footer {
+      margin-top: 32px; text-align: center;
+      font-size: 11px; color: #333; letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header class="header">
+    <div class="header-title">HTML <strong>→</strong> Webflow</div>
+    <div class="badge">XSCP v3</div>
+  </header>
+
+  <div class="grid">
+
+    <!-- Left: tabbed inputs -->
+    <div>
+      <div class="tab-bar">
+        <button class="tab active" data-tab="html">HTML</button>
+        <button class="tab" data-tab="css">CSS</button>
+        <button class="tab" data-tab="js">JS</button>
+      </div>
+
+      <div class="tab-pane active" id="pane-html">
+        <div class="input-wrap">
+          <button class="clear-btn" data-target="input-html" title="Clear">✕ clear</button>
+          <textarea id="input-html" spellcheck="false"
+            placeholder="<section class=&quot;hero&quot;>&#10;  <h1>Hello World</h1>&#10;  <p>AI-generated HTML goes here.</p>&#10;</section>"></textarea>
+          <div class="drop-hint">Drop .html files here</div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="pane-css">
+        <div class="input-wrap">
+          <button class="clear-btn" data-target="input-css" title="Clear">✕ clear</button>
+          <textarea id="input-css" spellcheck="false"
+            placeholder=".hero {&#10;  display: flex;&#10;  gap: 2rem;&#10;  padding: 4rem;&#10;}"></textarea>
+          <div class="drop-hint">Drop .css files here</div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="pane-js">
+        <div class="input-wrap">
+          <button class="clear-btn" data-target="input-js" title="Clear">✕ clear</button>
+          <textarea id="input-js" spellcheck="false"
+            placeholder="document.querySelector('.hero').addEventListener('click', () => {&#10;  // ...&#10;});"></textarea>
+          <div class="drop-hint">Drop .js files here</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: button + preview -->
+    <div class="preview-col">
+      <button class="btn" id="btn">Copy to Webflow ↗</button>
+      <div class="status" id="status"></div>
+
+      <div class="col-label" style="margin-top:16px">Structure Preview</div>
+      <div class="stats-row">
+        <div class="stat">Elements <b id="s-el">—</b></div>
+        <div class="stat">Classes <b id="s-cls">—</b></div>
+        <div class="stat">Embed <b id="s-emb">—</b></div>
+      </div>
+      <div class="tree" id="tree"></div>
+    </div>
+
+  </div>
+
+  <footer class="footer">XSCP v3 · Webflow Designer paste target · espidesigns</footer>
+
+</div>
+<script>
+// ── Utilities ──────────────────────────────────────────────────────────────────
+
+function uid() {
+  const u = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+  return '_' + u;
+}
+
+function shortHash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (((h << 5) + h) + str.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36).slice(0, 6);
+}
+
+function normStyleLess(raw) {
+  return raw.split(';')
+    .map(s => s.trim()).filter(Boolean)
+    .map(s => {
+      const i = s.indexOf(':');
+      if (i < 0) return s;
+      return s.slice(0, i).trim().toLowerCase() + ': ' + s.slice(i + 1).trim();
+    })
+    .join('; ') + ';';
+}
+
+function mkStyle(id, name, styleLess) {
+  return { _id: id, fake: false, type: 'class', name, namespace: '', comb: '',
+           styleLess, variants: {}, children: [], selector: null };
+}
+
+// ── Tag → Webflow type ─────────────────────────────────────────────────────────
+
+const TYPE_MAP = {
+  h1:'Heading', h2:'Heading', h3:'Heading', h4:'Heading', h5:'Heading', h6:'Heading',
+  a:'Link', img:'Image',
+  ul:'List', ol:'List', li:'ListItem',
+  svg:'_embed', canvas:'_embed', video:'_embed', audio:'_embed', iframe:'_embed',
+};
+
+// Void/formatting elements with no XSCP equivalent.
+// <br> as a Block node alongside text leaves crashes Webflow.
+const SKIP_TAGS = new Set(['br', 'hr', 'wbr', 'col', 'colgroup']);
+
+function tagType(tag) { return TYPE_MAP[tag] || 'Block'; }
+
+// ── Node data builder ──────────────────────────────────────────────────────────
+
+function nodeData(el, tag, type) {
+  const d = {
+    tag,
+    text: false,
+    search: { exclude: false },
+    visibility: { conditions: [] },
+    xattr: [],
+    attr: { id: el.getAttribute('id') || '' }
+  };
+
+  if (type === 'Heading') d.level = parseInt(tag[1], 10);
+
+  if (type === 'Link') {
+    const href   = el.getAttribute('href') || '';
+    const target = el.getAttribute('target') || '';
+    let mode = 'url';
+    if (href.startsWith('#'))              mode = 'hash';
+    else if (/^https?:\/\//i.test(href))  mode = 'external';
+    else if (href.startsWith('mailto:'))  mode = 'email';
+    else if (href.startsWith('tel:'))     mode = 'phone';
+    d.link = { url: href, target: target || null, mode };
+  }
+
+  if (type === 'Image') {
+    d.img = { url: el.getAttribute('src') || '', alt: el.getAttribute('alt') || '' };
+    const w = el.getAttribute('width'), h = el.getAttribute('height');
+    if (w) d.img.width  = parseInt(w, 10);
+    if (h) d.img.height = parseInt(h, 10);
+  }
+
+  const skip = new Set(['class', 'style', 'href', 'target', 'src', 'alt', 'width', 'height', 'id']);
+  for (const a of el.attributes) {
+    if (!skip.has(a.name)) d.attr[a.name] = a.value;
+  }
+
+  return d;
+}
+
+// ── Embed node builder ─────────────────────────────────────────────────────────
+
+function mkEmbed(html, label, isIframe) {
+  const hasScript = /\bscript\b/i.test(html);
+  return {
+    _id: uid(), type: 'HtmlEmbed', tag: 'div', classes: [], children: [], v: html,
+    data: {
+      tag: 'div', text: false,
+      search: { exclude: false },
+      embed: {
+        meta: { html, div: false, script: hasScript, compilable: false, iframe: isIframe },
+        type: 'html'
+      },
+      insideRTE: false, devlink: { runtimeProps: {}, slot: '' },
+      displayName: label, attr: { id: '' }, xattr: [], visibility: { conditions: [] }
+    }
+  };
+}
+
+// ── DOM walker ─────────────────────────────────────────────────────────────────
+
+function walk(node, nodes, styles, classMap) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const v = node.textContent;
+    if (!v.trim()) return null;
+    const n = { _id: uid(), text: true, v };
+    nodes.push(n);
+    return n._id;
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) return null;
+
+  const tag  = node.tagName.toLowerCase();
+  if (SKIP_TAGS.has(tag)) return null;
+  const type = tagType(tag);
+
+  // Whole subtree serialised as a raw embed (svg, canvas, video, iframe, etc.)
+  if (type === '_embed') {
+    const n = mkEmbed(node.outerHTML, tag.toUpperCase(), tag === 'iframe');
+    nodes.push(n);
+    return n._id;
+  }
+
+  // CSS classes → Style records (deduplicated)
+  const classIds = [];
+  for (const cls of node.classList) {
+    if (classMap.has(cls)) {
+      classIds.push(classMap.get(cls));
+    } else {
+      const sid = uid();
+      classMap.set(cls, sid);
+      styles.push(mkStyle(sid, cls, ''));
+      classIds.push(sid);
+    }
+  }
+
+  // Inline style → synthetic class
+  const inl = node.getAttribute('style');
+  if (inl && inl.trim()) {
+    const key = 'inline-' + shortHash(inl);
+    if (classMap.has(key)) {
+      classIds.push(classMap.get(key));
+    } else {
+      const sid = uid();
+      classMap.set(key, sid);
+      styles.push(mkStyle(sid, key, normStyleLess(inl)));
+      classIds.push(sid);
+    }
+  }
+
+  // Pre-order: push skeleton, then fill children
+  const n = { _id: uid(), type, tag, classes: classIds, children: [], data: nodeData(node, tag, type) };
+  nodes.push(n);
+
+  for (const child of node.childNodes) {
+    const cid = walk(child, nodes, styles, classMap);
+    if (cid) n.children.push(cid);
+  }
+
+  return n._id;
+}
+
+// Mark nodes whose direct children include text leaves with data.text = true
+function markTextContainers(nodes) {
+  const leafIds = new Set(nodes.filter(n => n.text === true).map(n => n._id));
+  for (const n of nodes) {
+    if (!n.text && n.children && n.children.some(id => leafIds.has(id))) {
+      n.data.text = true;
+    }
+  }
+}
+
+// ── XSCP assembler ────────────────────────────────────────────────────────────
+
+function assemble(rootIds, nodes, styles, cssStr, jsStr) {
+  const allNodes = [...nodes];
+  const embedIds = [];
+
+  if (cssStr.trim()) {
+    const cssHtml = '<style>\n' + cssStr + '\n</style>';
+    const e = mkEmbed(cssHtml, 'CSS', false);
+    const sid = uid();
+    styles.push(mkStyle(sid, 'u-embed-css', ''));
+    e.classes = [sid];
+    allNodes.push(e);
+    embedIds.push(e._id);
+  }
+
+  if (jsStr.trim()) {
+    const jsHtml = '<scr' + 'ipt>\n' + jsStr + '\n</' + 'script>';
+    const e = mkEmbed(jsHtml, 'JS', false);
+    const sid = uid();
+    styles.push(mkStyle(sid, 'u-embed-js', ''));
+    e.classes = [sid];
+    allNodes.push(e);
+    embedIds.push(e._id);
+  }
+
+  const wrapperChildren = [...embedIds, ...rootIds];
+
+  if (wrapperChildren.length !== rootIds.length || embedIds.length) {
+    // Only wrap when there are embeds to co-locate with the content
+    const wrapper = {
+      _id: uid(), type: 'Block', tag: 'div', classes: [],
+      children: wrapperChildren,
+      data: {
+        tag: 'div', text: false, displayName: 'Converted Component',
+        search: { exclude: false }, visibility: { conditions: [] }, xattr: [], attr: { id: '' }
+      }
+    };
+    allNodes.push(wrapper);
+  }
+
+  return {
+    type: '@webflow/XscpData',
+    payload: { nodes: allNodes, styles, assets: [], ix1: [],
+               ix2: { interactions: [], events: [], actionLists: [] } },
+    meta: { unlinkedSymbolCount: 0, droppedLinks: 0, dynBindRemovedCount: 0,
+            dynListBindRemovedCount: 0, paginationRemovedCount: 0 }
+  };
+}
+
+// ── Clipboard ─────────────────────────────────────────────────────────────────
+
+function copyJson(json) {
+  const ta = document.createElement('textarea');
+  ta.value = json;
+  Object.assign(ta.style, { position: 'fixed', top: '-9999px', left: '-9999px',
+                             opacity: '0', pointerEvents: 'none' });
+  document.body.appendChild(ta);
+  ta.select();
+
+  let ok = false;
+  document.addEventListener('copy', e => {
+    e.clipboardData.setData('application/json', json);
+    e.clipboardData.setData('text/plain', json);
+    e.preventDefault();
+    ok = true;
+  }, { once: true });
+
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+
+  if (!ok) throw new Error('execCommand copy failed — try again');
+}
+
+// ── Preview renderer (DOM API) ─────────────────────────────────────────────────
+
+function renderTree(nodes, styles, previewRootIds) {
+  const panel = document.getElementById('tree');
+  panel.textContent = '';
+
+  if (!previewRootIds.length) {
+    const e = document.createElement('span');
+    e.className = 'tree-empty';
+    e.textContent = 'No elements found.';
+    panel.appendChild(e);
+    return;
+  }
+
+  const byId  = new Map(nodes.map(n => [n._id, n]));
+  const styId = new Map(styles.map(s => [s._id, s]));
+  let count = 0;
+
+  function r(id, depth) {
+    if (count++ > 100) return;
+    const n = byId.get(id);
+    if (!n) return;
+
+    const line = document.createElement('span');
+    line.className = 'tree-line';
+    line.appendChild(document.createTextNode('  '.repeat(depth)));
+
+    if (n.text) {
+      const raw     = (n.v || '').replace(/\s+/g, ' ').trim();
+      const preview = raw.length > 36 ? raw.slice(0, 36) + '…' : raw;
+      const val = document.createElement('span');
+      val.className = 'c-val';
+      val.textContent = '"' + preview + '"';
+      line.appendChild(val);
+    } else {
+      line.appendChild(document.createTextNode('▸ '));
+      const typeEl = document.createElement('span');
+      typeEl.className = 'c-type';
+      typeEl.textContent = n.type;
+      line.appendChild(typeEl);
+
+      for (const sid of (n.classes || [])) {
+        const s = styId.get(sid);
+        if (!s) continue;
+        const clsEl = document.createElement('span');
+        clsEl.className = 'c-cls';
+        clsEl.textContent = '.' + s.name;
+        line.appendChild(clsEl);
+      }
+
+      if (n.type === 'Image' || n.type === 'HtmlEmbed') {
+        const meta = document.createElement('span');
+        meta.className = 'c-val';
+        meta.textContent = ' [' + (n.type === 'Image' ? 'img' : 'embed') + ']';
+        line.appendChild(meta);
+      }
+    }
+
+    panel.appendChild(line);
+    for (const cid of (n.children || [])) r(cid, depth + 1);
+  }
+
+  for (const id of previewRootIds) r(id, 0);
+
+  if (count > 100) {
+    const t = document.createElement('span');
+    t.className = 'tree-line c-val';
+    t.textContent = '  … truncated';
+    panel.appendChild(t);
+  }
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────────
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name));
+}
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+// ── Drag & drop ────────────────────────────────────────────────────────────────
+
+const EXT_TAB = { html: 'html', htm: 'html', css: 'css', js: 'js' };
+
+function setupDrop(taId) {
+  const ta = document.getElementById(taId);
+
+  ta.addEventListener('dragenter', e => { e.preventDefault(); ta.classList.add('drag-over'); });
+  ta.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  ta.addEventListener('dragleave', e => {
+    if (!ta.contains(e.relatedTarget)) ta.classList.remove('drag-over');
+  });
+
+  ta.addEventListener('drop', e => {
+    e.preventDefault();
+    ta.classList.remove('drag-over');
+    handleFiles(Array.from(e.dataTransfer.files));
+  });
+}
+
+function handleFiles(files) {
+  if (!files.length) return;
+
+  const reads = files.map(file => new Promise(resolve => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const reader = new FileReader();
+    reader.onload = ev => resolve({ ext, content: ev.target.result });
+    reader.readAsText(file);
+  }));
+
+  Promise.all(reads).then(results => {
+    let lastTab = null;
+    for (const { ext, content } of results) {
+      const tab = EXT_TAB[ext];
+      if (!tab) continue;
+      const ta = document.getElementById('input-' + tab);
+      ta.value = (ta.value ? ta.value + '\n\n' : '') + content;
+      lastTab = tab;
+    }
+    if (lastTab) switchTab(lastTab);
+    setStatus('File(s) loaded — click Copy to Webflow when ready.', 'ok');
+  });
+}
+
+// ── Clear buttons ──────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.clear-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById(btn.dataset.target).value = '';
+  });
+});
+
+setupDrop('input-html');
+setupDrop('input-css');
+setupDrop('input-js');
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+
+document.getElementById('btn').addEventListener('click', () => {
+  const htmlSrc = document.getElementById('input-html').value.trim();
+  const cssSrc  = document.getElementById('input-css').value.trim();
+  const jsSrc   = document.getElementById('input-js').value.trim();
+
+  if (!htmlSrc && !cssSrc && !jsSrc) {
+    setStatus('Add some content first.', 'err');
+    return;
+  }
+
+  try {
+    // Parse HTML tab content
+    const doc  = new DOMParser().parseFromString(htmlSrc || '', 'text/html');
+    const dom  = doc.body;
+
+    const nodes    = [];
+    const styles   = [];
+    const classMap = new Map();
+    const rootIds  = [];
+
+    for (const child of dom.childNodes) {
+      const id = walk(child, nodes, styles, classMap);
+      if (id) rootIds.push(id);
+    }
+
+    markTextContainers(nodes);
+
+    const xscp = assemble(rootIds, nodes, styles, cssSrc, jsSrc);
+    copyJson(JSON.stringify(xscp));
+
+    // Stats
+    const embedBytes = (cssSrc ? cssSrc.length : 0) + (jsSrc ? jsSrc.length : 0);
+    document.getElementById('s-el').textContent  = nodes.filter(n => !n.text).length;
+    document.getElementById('s-cls').textContent = styles.length;
+    document.getElementById('s-emb').textContent = embedBytes ? embedBytes + 'b' : '0b';
+
+    // Preview: show wrapper children, or raw rootIds if no embed
+    const wrapper = xscp.payload.nodes.find(n => n.data && n.data.displayName === 'Converted Component');
+    renderTree(xscp.payload.nodes, styles, wrapper ? wrapper.children : rootIds);
+
+    setStatus('✓ Copied! Paste in Webflow Designer (Cmd+V / Ctrl+V)', 'ok');
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'err');
+    console.error(e);
+  }
+});
+
+// Init tree placeholder
+(function () {
+  const tree = document.getElementById('tree');
+  const span = document.createElement('span');
+  span.className = 'tree-empty';
+  span.textContent = 'Add content and click Copy to Webflow…';
+  tree.appendChild(span);
+}());
+</script>
+</body>
+</html>
