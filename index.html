@@ -14,6 +14,7 @@
       --text: #e0e0e0;
       --muted: #999;
       --accent: #00c27c;
+      --warn: #f0a30a;
       --error: #ff5252;
       --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
     }
@@ -129,7 +130,9 @@
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 100px; padding: 3px 11px;
     }
-    .stat b { color: var(--accent); }
+    .stat b          { color: var(--accent); }
+    .stat b.warn     { color: var(--warn); }
+    .stat b.err      { color: var(--error); }
 
     .tree {
       flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
@@ -222,7 +225,8 @@
       <div class="stats-row">
         <div class="stat">Elements <b id="s-el">—</b></div>
         <div class="stat">Classes <b id="s-cls">—</b></div>
-        <div class="stat">Embed <b id="s-emb">—</b></div>
+        <div class="stat">CSS <b id="s-css">—</b></div>
+        <div class="stat">JS <b id="s-js">—</b></div>
       </div>
       <div class="tree" id="tree"></div>
     </div>
@@ -273,7 +277,9 @@ const TYPE_MAP = {
   h1:'Heading', h2:'Heading', h3:'Heading', h4:'Heading', h5:'Heading', h6:'Heading',
   a:'Link', img:'Image',
   ul:'List', ol:'List', li:'ListItem',
+  // Serialise entire subtree as HtmlEmbed — avoids Webflow schema validation on these tags
   svg:'_embed', canvas:'_embed', video:'_embed', audio:'_embed', iframe:'_embed',
+  form:'_embed',
 };
 
 // Void/formatting elements with no XSCP equivalent.
@@ -414,6 +420,72 @@ function markTextContainers(nodes) {
   }
 }
 
+// Recursively collect all text from a node subtree
+function allText(id, byId) {
+  const n = byId.get(id);
+  if (!n) return '';
+  if (n.text === true) return n.v || '';
+  return (n.children || []).map(cid => allText(cid, byId)).join('');
+}
+
+// Tags that are inherently text containers in HTML — Webflow crashes if they have
+// data.text=false with Block children instead of text leaves.
+const TEXT_CONTAINER_TAGS = new Set(['p','h1','h2','h3','h4','h5','h6','li','dt','dd','label','button','th','td']);
+
+// Inline HTML elements that map to Block type in our converter.
+const INLINE_ELEMENT_TAGS = new Set(['span','strong','em','b','i','u','s','del','ins','mark','code',
+                                      'kbd','samp','small','sub','sup','abbr','cite','q','time','a']);
+
+// Two crash patterns:
+// 1. Mixed content: data.text=true node has both text-leaf children AND Block children.
+//    e.g. <h1>Text <span>inline</span></h1>
+// 2. Inline-only Blocks: a text-container tag (p, h1-h6…) has Block-only children that
+//    are all inline HTML elements. e.g. <p><strong>Bold</strong><span>text</span></p>
+// Fix: collapse the entire subtree into a single concatenated text leaf.
+function fixMixedContent(nodes) {
+  const byId = new Map(nodes.map(n => [n._id, n]));
+  for (const n of nodes) {
+    if (!n.children || !n.data) continue;
+    const kids = n.children.map(id => byId.get(id)).filter(Boolean);
+    const hasLeaf  = kids.some(k => k.text === true);
+    const hasBlock = kids.some(k => k.type  !== undefined);
+
+    const mixedContent    = hasLeaf && hasBlock;
+    const inlineOnlyBlock = !hasLeaf && hasBlock
+                            && TEXT_CONTAINER_TAGS.has(n.tag)
+                            && kids.filter(k => 'type' in k).every(k => INLINE_ELEMENT_TAGS.has(k.tag));
+
+    if (!mixedContent && !inlineOnlyBlock) continue;
+
+    const v = n.children.map(id => allText(id, byId)).join('').replace(/\s+/g, ' ').trim();
+    if (v) {
+      const leaf = { _id: uid(), text: true, v };
+      nodes.push(leaf);
+      n.children  = [leaf._id];
+      n.data.text = true;
+    } else {
+      n.children  = [];
+      n.data.text = false;
+    }
+  }
+}
+
+// ── CSS chunk splitter ────────────────────────────────────────────────────────
+
+const CSS_EMBED_MAX = 49900; // 50k limit minus <style>\n...\n</style> overhead
+
+function splitCssChunks(css, max) {
+  const chunks = [];
+  let start = 0;
+  while (start < css.length) {
+    if (css.length - start <= max) { chunks.push(css.slice(start)); break; }
+    const cut = css.lastIndexOf('}', start + max);
+    if (cut <= start) { chunks.push(css.slice(start, start + max)); start += max; }
+    else              { chunks.push(css.slice(start, cut + 1));      start = cut + 1; }
+  }
+  return chunks.filter(c => c.trim());
+}
+
 // ── XSCP assembler ────────────────────────────────────────────────────────────
 
 function assemble(rootIds, nodes, styles, cssStr, jsStr) {
@@ -421,13 +493,14 @@ function assemble(rootIds, nodes, styles, cssStr, jsStr) {
   const embedIds = [];
 
   if (cssStr.trim()) {
-    const cssHtml = '<style>\n' + cssStr + '\n</style>';
-    const e = mkEmbed(cssHtml, 'CSS', false);
     const sid = uid();
     styles.push(mkStyle(sid, 'u-embed-css', ''));
-    e.classes = [sid];
-    allNodes.push(e);
-    embedIds.push(e._id);
+    for (const chunk of splitCssChunks(cssStr, CSS_EMBED_MAX)) {
+      const e = mkEmbed('<style>\n' + chunk + '\n</style>', 'CSS', false);
+      e.classes = [sid];
+      allNodes.push(e);
+      embedIds.push(e._id);
+    }
   }
 
   if (jsStr.trim()) {
@@ -441,9 +514,9 @@ function assemble(rootIds, nodes, styles, cssStr, jsStr) {
   }
 
   const wrapperChildren = [...embedIds, ...rootIds];
+  let topIds = rootIds;
 
-  if (wrapperChildren.length !== rootIds.length || embedIds.length) {
-    // Only wrap when there are embeds to co-locate with the content
+  if (embedIds.length) {
     const wrapper = {
       _id: uid(), type: 'Block', tag: 'div', classes: [],
       children: wrapperChildren,
@@ -453,11 +526,23 @@ function assemble(rootIds, nodes, styles, cssStr, jsStr) {
       }
     };
     allNodes.push(wrapper);
+    topIds = [wrapper._id];
   }
+
+  // Prune orphaned nodes — Webflow iterates every node in the flat array and crashes
+  // on nodes that have no parent. fixMixedContent leaves old children as orphans.
+  const byIdMap = new Map(allNodes.map(n => [n._id, n]));
+  const reachable = new Set();
+  const dfs = id => {
+    if (reachable.has(id)) return;
+    reachable.add(id);
+    for (const cid of (byIdMap.get(id)?.children || [])) dfs(cid);
+  };
+  topIds.forEach(dfs);
 
   return {
     type: '@webflow/XscpData',
-    payload: { nodes: allNodes, styles, assets: [], ix1: [],
+    payload: { nodes: allNodes.filter(n => reachable.has(n._id)), styles, assets: [], ix1: [],
                ix2: { interactions: [], events: [], actionLists: [] } },
     meta: { unlinkedSymbolCount: 0, droppedLinks: 0, dynBindRemovedCount: 0,
             dynListBindRemovedCount: 0, paginationRemovedCount: 0 }
@@ -568,6 +653,28 @@ function setStatus(msg, type) {
   el.className = 'status ' + type;
 }
 
+// ── Char counters ─────────────────────────────────────────────────────────────
+
+function charClass(n) {
+  if (n >= 50000) return 'err';
+  if (n >= 45000) return 'warn';
+  return '';
+}
+
+function updateCharCounts() {
+  const cssLen = document.getElementById('input-css').value.length;
+  const jsLen  = document.getElementById('input-js').value.length;
+
+  const cssEl = document.getElementById('s-css');
+  const jsEl  = document.getElementById('s-js');
+
+  cssEl.textContent = cssLen > 0 ? cssLen.toLocaleString() : '—';
+  cssEl.className   = charClass(cssLen);
+
+  jsEl.textContent  = jsLen > 0 ? jsLen.toLocaleString() : '—';
+  jsEl.className    = charClass(jsLen);
+}
+
 // ── Tabs ───────────────────────────────────────────────────────────────────────
 
 function switchTab(name) {
@@ -635,6 +742,9 @@ setupDrop('input-html');
 setupDrop('input-css');
 setupDrop('input-js');
 
+document.getElementById('input-css').addEventListener('input', updateCharCounts);
+document.getElementById('input-js').addEventListener('input', updateCharCounts);
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 document.getElementById('btn').addEventListener('click', () => {
@@ -663,15 +773,15 @@ document.getElementById('btn').addEventListener('click', () => {
     }
 
     markTextContainers(nodes);
+    fixMixedContent(nodes);
 
     const xscp = assemble(rootIds, nodes, styles, cssSrc, jsSrc);
     copyJson(JSON.stringify(xscp));
 
     // Stats
-    const embedBytes = (cssSrc ? cssSrc.length : 0) + (jsSrc ? jsSrc.length : 0);
     document.getElementById('s-el').textContent  = nodes.filter(n => !n.text).length;
     document.getElementById('s-cls').textContent = styles.length;
-    document.getElementById('s-emb').textContent = embedBytes ? embedBytes + 'b' : '0b';
+    updateCharCounts();
 
     // Preview: show wrapper children, or raw rootIds if no embed
     const wrapper = xscp.payload.nodes.find(n => n.data && n.data.displayName === 'Converted Component');
